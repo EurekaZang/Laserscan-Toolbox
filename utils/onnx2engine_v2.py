@@ -28,14 +28,6 @@ def build_engine():
     config = builder.create_builder_config()
     # 根据你的GPU内存调整
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30) # 1GB
-    # if USE_FP16 and builder.platform_has_fast_fp16:
-    #     print("Enabling FP16 mode.")
-    #     if hasattr(trt, 'Flag'):
-    #         config.set_flag(trt.Flag.FP16)
-    #     else:
-    #         config.fp16_mode = True
-    # else:
-    #     print("Using FP32 mode.")
 
     # 3. 解析 ONNX 模型
     if not os.path.exists(ONNX_PATH):
