@@ -1,0 +1,25 @@
+# 创建模拟器包
+ros2 pkg create --build-type ament_python laser_scan_simulator --dependencies rclpy sensor_msgs std_msgs
+
+# 将上面的代码保存到对应文件中
+# 构建包
+colcon build --packages-select laser_scan_simulator laser_scan_merger
+source install/setup.bash
+
+# 方法1：分别启动
+ros2 run laser_scan_simulator laser_scan_simulator
+ros2 run laser_scan_merger laser_scan_merger
+
+# 方法2：使用launch文件一次性启动
+ros2 launch laser_scan_simulator test_merger.launch.py
+
+# 查看原始话题
+ros2 topic echo /scan --once
+ros2 topic echo /scan_by_orbbec --once
+
+# 查看合并后的话题
+ros2 topic echo /merged_scan --once
+
+# 查看话题列表和频率
+ros2 topic list
+ros2 topic hz /merged_scan
