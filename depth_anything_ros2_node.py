@@ -23,7 +23,6 @@ import pycuda.autoinit  # 初始化CUDA，确保只在主线程执行一次
 
 # --- 从 `test_engine.py` 复制过来的预处理函数 ---
 def preprocess_image(image, target_height, target_width):
-    # 这个函数将任意尺寸的输入图像调整为模型需要的固定尺寸
     resized = cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
     rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     normalized = rgb_image.astype(np.float32) / 255.0
@@ -124,9 +123,9 @@ class DepthAnythingTensorRTNode(Node):
         self.bridge = CvBridge()
 
         # --- 创建发布者 ---
-        self.depth_pub = self.create_publisher(Image, '/fake_camera/depth/image', 10)
+        self.depth_pub = self.create_publisher(Image, '/fake_camera/depth/image', 30)
         self.depth_color_pub = self.create_publisher(Image, '/fake_camera/depth/image_color', 10)
-        self.depth_info_pub = self.create_publisher(CameraInfo, '/fake_camera/depth/camera_info', 10)
+        self.depth_info_pub = self.create_publisher(CameraInfo, '/fake_camera/depth/camera_info', 30)
 
         # --- 线程锁 ---
         self.lock = threading.Lock()

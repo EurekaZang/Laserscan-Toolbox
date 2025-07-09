@@ -24,7 +24,7 @@ class LaserScanMerger(Node):
         sensor_qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5 
+            depth=5
         )
         
         self.scan_360_sub = message_filters.Subscriber(
