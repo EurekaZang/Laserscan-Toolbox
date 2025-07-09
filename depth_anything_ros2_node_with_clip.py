@@ -111,7 +111,6 @@ class DepthAnythingTensorRTNode(Node):
         self.bridge = CvBridge()
 
         self.depth_pub = self.create_publisher(Image, '/fake_camera/depth/image', 30)
-        self.depth_color_pub = self.create_publisher(Image, '/fake_camera/depth/image_color', 30)
         self.depth_info_pub = self.create_publisher(CameraInfo, '/fake_camera/depth/camera_info', 30)
 
         self.lock = threading.Lock()
@@ -161,12 +160,6 @@ class DepthAnythingTensorRTNode(Node):
             depth_msg = self.bridge.cv2_to_imgmsg(metric_depth, encoding='32FC1')
             depth_msg.header = image_msg.header
             self.depth_pub.publish(depth_msg)
-
-            depth_visual = cv2.normalize(metric_depth, None, 255, 0, cv2.NORM_MINMAX, cv2.CV_8U)
-            colored_depth = cv2.applyColorMap(depth_visual, cv2.COLORMAP_INFERNO)
-            depth_color_msg = self.bridge.cv2_to_imgmsg(colored_depth, encoding='bgr8')
-            depth_color_msg.header = image_msg.header
-            self.depth_color_pub.publish(depth_color_msg)
 
             info_msg.header = image_msg.header
             self.depth_info_pub.publish(info_msg)

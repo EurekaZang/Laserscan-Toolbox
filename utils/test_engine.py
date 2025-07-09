@@ -7,17 +7,13 @@ import cv2
 import time
 
 # --- 配置 ---
-ENGINE_PATH = 'depth_anything_v2_small_rebuilt.engine' # <--- 使用新生成的引擎
-TEST_IMAGE_PATH = 'test_image.jpg'                 # <--- 你的测试图片
-OUTPUT_IMAGE_PATH = 'depth_output.png'             # <--- 输出的可视化深度图
+ENGINE_PATH = 'depth_anything_v2_small_rebuilt.engine'
+TEST_IMAGE_PATH = 'test_image.jpg'
+OUTPUT_IMAGE_PATH = 'depth_output.png'
 
-# 你的ROS节点中使用的参数，用于后处理
-# 这些值需要根据你的模型进行微调！
-# 初始值可以从你的ROS节点代码中获取
 PARAM_SHIFT = 0.000438
 PARAM_SCALE = 0.021146
 
-# 从 `test_onnx.py` 复制过来的预处理函数，保持一致性
 def preprocess_image(image, target_height, target_width):
     resized = cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
     rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
@@ -124,12 +120,7 @@ def main():
     
     cv2.imwrite(OUTPUT_IMAGE_PATH, colored_depth_map)
     print(f"Success! Visualized depth map saved to {OUTPUT_IMAGE_PATH}")
-    
-    # 如果你想预览
-    # cv2.imshow("Original", image)
-    # cv2.imshow("Depth", colored_depth_map)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+
 
 if __name__ == '__main__':
     main()

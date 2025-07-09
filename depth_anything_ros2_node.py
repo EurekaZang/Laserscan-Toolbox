@@ -17,11 +17,6 @@ import tensorrt as trt
 import pycuda.driver as cuda
 import pycuda.autoinit  # 初始化CUDA，确保只在主线程执行一次
 
-# ==============================================================================
-#  核心推理代码
-# ==============================================================================
-
-# --- 从 `test_engine.py` 复制过来的预处理函数 ---
 def preprocess_image(image, target_height, target_width):
     resized = cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
     rgb_image = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
@@ -33,7 +28,6 @@ def preprocess_image(image, target_height, target_width):
     batch_image = np.expand_dims(chw_image, axis=0)
     return batch_image.astype(np.float32)
 
-# --- 从 `test_engine.py` 复制过来的 TensorRT 推理类 ---
 class TrtInference:
     def __init__(self, engine_path):
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -77,11 +71,9 @@ class TrtInference:
         print(f"Output Shape: {self.output_shape}")
 
     def infer(self, image):
-        # 预处理
         input_data = preprocess_image(image, self.input_shape[2], self.input_shape[3])
         np.copyto(self.host_inputs[0], input_data.ravel())
 
-        # 推理
         start = time.time()
         cuda.memcpy_htod_async(self.device_inputs[0], self.host_inputs[0], self.stream)
         for i in range(self.engine.num_io_tensors):
@@ -94,22 +86,16 @@ class TrtInference:
         print(f"Inference time: {(end - start) * 1000:.2f} ms")
         return self.host_outputs[0]
 
-# ==============================================================================
-#  ROS2 节点封装
-# ==============================================================================
-
 class DepthAnythingTensorRTNode(Node):
     def __init__(self):
         super().__init__('depth_anything_tensorrt_node')
 
-        # --- 参数声明 ---
         self.declare_parameter('engine_path', 'depth_anything_v2_small.engine')
         self.declare_parameter('param_scale', 0.021146)
         self.declare_parameter('param_shift', 0.000438)
         self.declare_parameter('input_image_topic', '/camera/color/image_raw')
         self.declare_parameter('input_info_topic', '/camera/color/camera_info')
         
-        # --- 获取参数 ---
         engine_path = self.get_parameter('engine_path').get_parameter_value().string_value
         self.param_scale = self.get_parameter('param_scale').get_parameter_value().double_value
         self.param_shift = self.get_parameter('param_shift').get_parameter_value().double_value
@@ -118,19 +104,14 @@ class DepthAnythingTensorRTNode(Node):
 
         self.get_logger().info(f"Using TensorRT engine: {engine_path}")
 
-        # --- 初始化推理引擎 ---
         self.trt_model = TrtInference(engine_path)
         self.bridge = CvBridge()
 
-        # --- 创建发布者 ---
         self.depth_pub = self.create_publisher(Image, '/fake_camera/depth/image', 30)
-        self.depth_color_pub = self.create_publisher(Image, '/fake_camera/depth/image_color', 10)
         self.depth_info_pub = self.create_publisher(CameraInfo, '/fake_camera/depth/camera_info', 30)
 
-        # --- 线程锁 ---
         self.lock = threading.Lock()
 
-        # --- 创建同步订阅者 ---
         self.image_sub = message_filters.Subscriber(self, Image, input_image_topic)
         self.info_sub = message_filters.Subscriber(self, CameraInfo, input_info_topic)
 
@@ -140,57 +121,37 @@ class DepthAnythingTensorRTNode(Node):
         self.get_logger().info('Depth Anything TensorRT node has started.')
 
     def image_callback(self, image_msg, info_msg):
-        # 尝试获取锁，如果失败（意味着上一个回调还在处理），则直接返回以丢弃当前帧
-        # 这是保证实时性的关键，避免因处理延迟导致消息堆积
         if not self.lock.acquire(blocking=False):
             self.get_logger().warn('Dropping a frame, inference is not fast enough for the input rate.')
             return
 
         try:
-            # --- 计时器初始化 ---
             t0 = self.get_clock().now()
-
-            # [第1部分] 将ROS消息转换为OpenCV图像
             cv_image = self.bridge.imgmsg_to_cv2(image_msg, 'bgr8')
             original_shape = cv_image.shape
             t1 = self.get_clock().now()
-
-            # [第2部分] 执行推理 (这个函数内部已经有打印，但我们在这里测量包含预处理的总时间)
             raw_output = self.trt_model.infer(cv_image)
             t2 = self.get_clock().now()
 
-            # [第3部分] 核心后处理 (重塑、缩放、应用参数)
             depth_map = raw_output.reshape(self.trt_model.output_shape[-2:])
             depth_resized = cv2.resize(depth_map, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
             metric_depth = (depth_resized * self.param_scale + self.param_shift).astype(np.float32)
             t3 = self.get_clock().now()
 
-            # [第4部分] 结果打包与发布 (包括可视化和消息转换)
-            # 1. 准备并发布原始深度图 (32FC1)
             depth_msg = self.bridge.cv2_to_imgmsg(metric_depth, encoding='32FC1')
             depth_msg.header = image_msg.header
             self.depth_pub.publish(depth_msg)
 
-            # 2. 准备并发布可视化深度图 (BGR8)
-            depth_visual = cv2.normalize(metric_depth, None, 255, 0, cv2.NORM_MINMAX, cv2.CV_8U)
-            colored_depth = cv2.applyColorMap(depth_visual, cv2.COLORMAP_INFERNO)
-            depth_color_msg = self.bridge.cv2_to_imgmsg(colored_depth, encoding='bgr8')
-            depth_color_msg.header = image_msg.header
-            self.depth_color_pub.publish(depth_color_msg)
-
-            # 3. 发布深度图对应的相机信息
             info_msg.header = image_msg.header
             self.depth_info_pub.publish(info_msg)
             t4 = self.get_clock().now()
 
-            # --- 生成并打印详细的耗时报告 ---
             time_ros_to_cv = (t1 - t0).nanoseconds / 1e6
             time_inference_full = (t2 - t1).nanoseconds / 1e6
             time_post_processing = (t3 - t2).nanoseconds / 1e6
             time_publishing_and_viz = (t4 - t3).nanoseconds / 1e6
             time_total = (t4 - t0).nanoseconds / 1e6
 
-            # 使用一个多行字符串来格式化日志，使其更易读
             log_message = (
                 f"\n--- Timing Breakdown (ms) ---\n"
                 f"  1. ROS->CV Convert:    {time_ros_to_cv:6.2f}\n"
@@ -205,7 +166,6 @@ class DepthAnythingTensorRTNode(Node):
         except CvBridgeError as e:
             self.get_logger().error(f'CV Bridge error: {e}')
         finally:
-            # 确保锁被释放
             self.lock.release()
 
 def main(args=None):

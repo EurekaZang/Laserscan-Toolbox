@@ -18,14 +18,12 @@ class LaserScanDownsampler(Node):
     def __init__(self):
         super().__init__('laser_scan_downsampler')
         
-        # 创建订阅者
         self.subscription = self.create_subscription(
             LaserScan,
             '/orbbec_scan',
             self.listener_callback,
             30) # QoS profile depth
             
-        # 创建发布者
         self.publisher_ = self.create_publisher(
             LaserScan,
             '/scan_downsampled',
@@ -41,14 +39,12 @@ class LaserScanDownsampler(Node):
     def listener_callback(self, msg: LaserScan):
         """
         接收到LaserScan消息时的回调函数。
-        该函数会执行降采样（如果需要），并打印详细的处理摘要日志。
         """
         # 记录处理开始时间
         start_time = time.perf_counter()
 
         original_num_points = len(msg.ranges)
         
-        # 如果原始点数已经很少，或者为0，则无需处理，直接发布
         if original_num_points <= TARGET_POINTS:
             if original_num_points == 0:
                 self.get_logger().warn("Received a scan with 0 points. Publishing as is.")
@@ -74,7 +70,6 @@ class LaserScanDownsampler(Node):
         # --- 如果点数 > 目标点数，则执行降采样 ---
         self.get_logger().info(f"Received a scan with {original_num_points} points. Downsampling to ~{TARGET_POINTS} points.")
         
-        # 创建一个新的LaserScan消息用于发布
         new_scan_msg = LaserScan()
         new_scan_msg.header = msg.header
         new_scan_msg.angle_min = msg.angle_min
@@ -84,7 +79,6 @@ class LaserScanDownsampler(Node):
         new_scan_msg.range_min = msg.range_min
         new_scan_msg.range_max = msg.range_max
 
-        # 使用numpy.linspace计算需要拾取的点的索引
         indices_to_pick = np.linspace(0, original_num_points - 1, num=TARGET_POINTS, endpoint=True, dtype=int)
 
         # 从原始数据中拾取点

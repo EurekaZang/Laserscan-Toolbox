@@ -10,7 +10,6 @@ import numpy as np
 import math
 import time
 
-# 导入TF2相关的库
 import tf2_ros
 from tf_transformations import euler_from_quaternion
 
@@ -23,7 +22,6 @@ class LaserScanMerger(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # --- QoS Profile ---
-        # 对于传感器数据，BEST_EFFORT通常更合适，因为它不会因为网络丢包而阻塞
         sensor_qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
@@ -31,7 +29,6 @@ class LaserScanMerger(Node):
         )
         
         # --- 独立监控订阅者 (用于调试) ---
-        # 作用：检查节点是否能独立接收到每个话题的消息
         self.scan_360_monitor_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_360_monitor_callback, sensor_qos_profile
         )
@@ -39,7 +36,6 @@ class LaserScanMerger(Node):
             LaserScan, '/scan_downsampled', self.scan_75_monitor_callback, sensor_qos_profile
         )
 
-        # --- 同步订阅者 ---
         self.scan_360_sub = message_filters.Subscriber(
             self, LaserScan, '/scan', qos_profile=sensor_qos_profile
         )
@@ -47,15 +43,13 @@ class LaserScanMerger(Node):
             self, LaserScan, '/scan_downsampled', qos_profile=sensor_qos_profile
         )
 
-        # 时间同步器，slop参数定义了消息时间戳的最大允许差异（秒）
         self.ats = message_filters.ApproximateTimeSynchronizer(
             [self.scan_360_sub, self.scan_75_sub],
-            queue_size=15, # 增加队列大小以应对可能的延迟抖动
-            slop=0.1  # 稍微放宽slop以提高同步成功率
+            queue_size=15,
+            slop=0.1
         )
         self.ats.registerCallback(self.synchronized_callback)
         
-        # --- 发布者 ---
         self.merged_scan_pub = self.create_publisher(
             LaserScan, '/merged_scan', qos_profile=sensor_qos_profile
         )
@@ -68,7 +62,6 @@ class LaserScanMerger(Node):
         self.get_logger().info(" -> Publishing merged scan to '/merged_scan'.")
         self.get_logger().info("=" * 60)
 
-    # --- 独立监控回调 ---
     def scan_360_monitor_callback(self, msg):
         self.get_logger().info("Received a message from '/scan'", throttle_duration_sec=5)
 
@@ -89,13 +82,12 @@ class LaserScanMerger(Node):
         return True
 
     def synchronized_callback(self, scan_360_msg, scan_75_msg):
-        """主回调函数，在收到两个同步的消息后执行"""
+        # 回调主函数
         start_time = time.perf_counter()
         self.callback_count += 1
         
         self.get_logger().info(f"\n{'='*20} [Executing Callback #{self.callback_count}] {'='*20}")
         
-        # --- 1. 数据验证 ---
         self.get_logger().info("Step 1: Validating incoming scan data...")
         if not self.validate_scan_data(scan_360_msg, "'/scan' (360)"):
             self.get_logger().info("=" * 60)
@@ -105,7 +97,6 @@ class LaserScanMerger(Node):
             return
         self.get_logger().info("  -> Validation PASSED for both scans.")
         
-        # --- 2. 初始化合并后的Scan ---
         self.get_logger().info("Step 2: Initializing merged scan from the base scan ('/scan').")
         merged_scan = LaserScan()
         merged_scan.header.stamp = scan_360_msg.header.stamp
@@ -126,7 +117,6 @@ class LaserScanMerger(Node):
             merged_intensities_np = np.zeros_like(merged_ranges_np)
         self.get_logger().info(f"  -> Base scan initialized with {len(merged_ranges_np)} points.")
 
-        # --- 3. 执行数据替换 ---
         self.get_logger().info("Step 3: Replacing data using '/scan_downsampled'.")
         merged_ranges_np, merged_intensities_np, replaced_count = self.replace_scan_data_vectorized(
             merged_ranges_np,
@@ -135,13 +125,11 @@ class LaserScanMerger(Node):
             scan_360_msg
         )
         
-        # --- 4. 发布结果 ---
         self.get_logger().info("Step 4: Publishing the final merged scan.")
         merged_scan.ranges = merged_ranges_np.tolist()
         merged_scan.intensities = merged_intensities_np.tolist()
         self.merged_scan_pub.publish(merged_scan)
 
-        # --- 5. 打印总结 ---
         end_time = time.perf_counter()
         processing_time_ms = (end_time - start_time) * 1000
         self.get_logger().info("--- Final Summary ---")
@@ -154,7 +142,6 @@ class LaserScanMerger(Node):
         source_frame = scan_75.header.frame_id
         target_frame = scan_360.header.frame_id
         
-        # --- 3a. 获取TF变换 ---
         self.get_logger().info(f"  [3a] Looking up transform from '{source_frame}' to '{target_frame}'...")
         try:
             trans = self.tf_buffer.lookup_transform(
@@ -168,7 +155,6 @@ class LaserScanMerger(Node):
             self.get_logger().warn(f"    -> TF transform not available: {e}", throttle_duration_sec=5.0)
             return merged_ranges_np, merged_intensities_np, 0
 
-        # --- 3b. 过滤并转换源Scan点 ---
         self.get_logger().info("  [3b] Filtering and preparing source scan points...")
         ranges_75 = np.array(scan_75.ranges, dtype=np.float32)
         valid_indices = np.isfinite(ranges_75) & (ranges_75 >= scan_75.range_min) & (ranges_75 <= scan_75.range_max)
@@ -179,7 +165,6 @@ class LaserScanMerger(Node):
             return merged_ranges_np, merged_intensities_np, 0
         self.get_logger().info(f"    -> Found {num_valid_points} valid points in source scan.")
             
-        # --- 3c. 坐标变换 ---
         self.get_logger().info("  [3c] Transforming points to the target frame...")
         valid_ranges = ranges_75[valid_indices]
         angles_75 = scan_75.angle_min + np.arange(len(scan_75.ranges)) * scan_75.angle_increment
@@ -191,7 +176,6 @@ class LaserScanMerger(Node):
         x_target = x_source * cos_yaw - y_source * sin_yaw + translation.x
         y_target = x_source * sin_yaw + y_source * cos_yaw + translation.y
 
-        # --- 3d. 计算新坐标并过滤 ---
         self.get_logger().info("  [3d] Calculating new ranges/angles and applying filters...")
         new_ranges = np.sqrt(x_target**2 + y_target**2)
         new_angles = np.arctan2(y_target, x_target)
@@ -206,7 +190,6 @@ class LaserScanMerger(Node):
         final_new_ranges = new_ranges[range_mask]
         final_new_angles = new_angles[range_mask]
         
-        # --- 3e. 计算目标索引并更新 ---
         self.get_logger().info("  [3e] Calculating target indices and updating arrays...")
         target_indices = np.round((final_new_angles - scan_360.angle_min) / scan_360.angle_increment).astype(int)
         
