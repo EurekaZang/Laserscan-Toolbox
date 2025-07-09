@@ -20,7 +20,7 @@ class LaserScanDownsampler(Node):
             LaserScan,
             '/scan_downsampled',
             30) # QoS profile depth
-        self.get_logger().info(f"LaserScan Downsampler Node Started. Subscribing to /scan, Publishing to /scan_downsampled with approx {TARGET_POINTS} points.")
+        self.get_logger().info(f"LaserScan Downsampler Node Started. Subscribing to /orbbec_scan, Publishing to /scan_downsampled with approx {TARGET_POINTS} points.")
 
     def listener_callback(self, msg: LaserScan):
         self.get_logger().info(f"Received scan with {len(msg.ranges)} points.")

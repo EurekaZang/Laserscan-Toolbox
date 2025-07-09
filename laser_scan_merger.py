@@ -35,7 +35,7 @@ class LaserScanMerger(Node):
         )
 
         self.ats = message_filters.ApproximateTimeSynchronizer(
-            [self.scan_360_sub, self.scan_75_sub], 
+            [self.scan_360_sub, self.scan_75_sub],
             queue_size=10,
             slop=0.05
         )
@@ -69,9 +69,9 @@ class LaserScanMerger(Node):
             merged_intensities_np = np.zeros_like(merged_ranges_np)
 
         merged_ranges_np, merged_intensities_np, replaced_count = self.replace_scan_data_vectorized(
-            merged_ranges_np, 
+            merged_ranges_np,
             merged_intensities_np,
-            scan_75_msg, 
+            scan_75_msg,
             scan_360_msg
         )
         
