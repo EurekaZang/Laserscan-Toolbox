@@ -135,7 +135,7 @@ class DepthAnythingTensorRTNode(Node):
 
             depth_map = raw_output.reshape(self.trt_model.output_shape[-2:])
             depth_resized = cv2.resize(depth_map, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
-            metric_depth = (depth_resized * self.param_scale + self.param_shift).astype(np.float32)
+            metric_depth = ((depth_resized * self.param_scale + self.param_shift) * 12).astype(np.float32)
             t3 = self.get_clock().now()
 
             depth_msg = self.bridge.cv2_to_imgmsg(metric_depth, encoding='32FC1')
