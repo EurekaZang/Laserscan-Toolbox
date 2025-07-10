@@ -5,8 +5,8 @@ import os
 def export_model_to_onnx():
     # --- Configuration ---
     # IMPORTANT: Use the exact same model name as in your ROS node
-    model_name = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf'
-    output_onnx_path = 'depth_anything_v2_small.onnx'
+    model_name = 'depth-anything/Depth-Anything-V2-Metric-Indoor-Large-hf'
+    output_onnx_path = 'depth_anything_v2_large.onnx'
     
     # --- Check Model Input Size ---
     # The V2-Small model expects a fixed input size. We get this from the processor config.

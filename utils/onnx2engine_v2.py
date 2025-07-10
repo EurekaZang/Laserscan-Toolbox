@@ -3,8 +3,8 @@ import tensorrt as trt
 import os
 
 # --- 配置 ---
-ONNX_PATH = 'depth_anything_v2_small.onnx' # <--- 你的 ONNX 文件路径
-ENGINE_PATH = 'depth_anything_v2_small_rebuilt.engine' # <--- 输出的引擎文件路径
+ONNX_PATH = 'depth_anything_v2_large.onnx' # <--- 你的 ONNX 文件路径
+ENGINE_PATH = 'depth_anything_v2_large.engine' # <--- 输出的引擎文件路径
 USE_FP16 = True # 使用半精度浮点数可以显著提速，通常对深度估计模型影响不大
 
 # 假设的输入尺寸，必须与第一步中验证的尺寸一致！

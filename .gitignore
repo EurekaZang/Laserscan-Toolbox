@@ -1,4 +1,4 @@
-depth_anything_v2_small.engine
-depth_anything_v2_small.onnx
+models/depth_anything_v2_small.engine
+models/depth_anything_v2_small.onnx
 *.onnx
 *.engine
