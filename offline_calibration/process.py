@@ -28,7 +28,8 @@ class DepthCalibrationProcessor(Node):
         
         # 订阅原始深度图和校准参数
         self.depth_sub = self.create_subscription(
-            Image, '/fake_camera/depth/raw_unscaled', self.depth_callback, 30)
+            Image, '/fake_camera/depth/image', self.depth_callback, 30)
+            # Image, '/fake_camera/depth/raw_unscaled', self.depth_callback, 30)
         self.param_sub = self.create_subscription(
             Float64MultiArray, '/calibration_params', self.param_callback, 30)
         

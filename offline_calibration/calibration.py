@@ -22,6 +22,8 @@ class DepthLidarCalibrator(Node):
         self.declare_parameter('max_range', 15.0)
         self.declare_parameter('time_sync_tolerance', 0.1)  # 时间同步容差
         self.declare_parameter('debug_mode', True)
+        # NEW: Add parameter for angle matching tolerance (e.g., in radians)
+        self.declare_parameter('angle_tolerance', 0.005)  # ~0.3 degrees, adjust as needed
         
         self.calibration_mode = self.get_parameter('calibration_mode').get_parameter_value().string_value
         self.sample_size = self.get_parameter('sample_size').get_parameter_value().integer_value
@@ -29,6 +31,7 @@ class DepthLidarCalibrator(Node):
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
         self.time_tolerance = self.get_parameter('time_sync_tolerance').get_parameter_value().double_value
         self.debug_mode = self.get_parameter('debug_mode').get_parameter_value().bool_value
+        self.angle_tolerance = self.get_parameter('angle_tolerance').get_parameter_value().double_value
         
         # 数据存储
         self.scan_pairs = deque(maxlen=self.sample_size)
@@ -79,6 +82,7 @@ class DepthLidarCalibrator(Node):
         self.get_logger().info(f'Using {"message_filters sync" if self.use_sync else "manual sync"}')
     
     def synchronized_callback(self, lidar_msg, depth_msg):
+        self.get_logger().info('Received synchronized pair!')  # NEW: Confirm reception
         """使用message_filters同步的回调"""
         self.lidar_count += 1
         self.depth_count += 1
@@ -92,6 +96,7 @@ class DepthLidarCalibrator(Node):
         self.store_scan_pair(lidar_msg, depth_msg)
     
     def lidar_callback(self, msg):
+        self.get_logger().info('Received LiDAR message!')  # NEW: Confirm reception
         """LiDAR数据回调（手动同步模式）"""
         self.lidar_count += 1
         with self.lock:
@@ -99,6 +104,7 @@ class DepthLidarCalibrator(Node):
         self.try_manual_sync()
     
     def depth_scan_callback(self, msg):
+        self.get_logger().info('Received Depth message!')  # NEW: Confirm reception
         """深度扫描数据回调（手动同步模式）"""
         self.depth_count += 1
         with self.lock:
@@ -135,38 +141,65 @@ class DepthLidarCalibrator(Node):
         return stamp.sec + stamp.nanosec * 1e-9
     
     def store_scan_pair(self, lidar_scan, depth_scan):
-        """存储配对的扫描数据"""
-        if len(lidar_scan.ranges) != len(depth_scan.ranges):
-            self.get_logger().warning(f'Range length mismatch: LiDAR {len(lidar_scan.ranges)} vs Depth {len(depth_scan.ranges)}')
-            return
+        """存储配对的扫描数据 - Updated to match based on angles instead of assuming equal lengths"""
         
-        # 提取有效的深度对
+        # Compute angles for LiDAR
+        lidar_angles = np.arange(
+            lidar_scan.angle_min,
+            lidar_scan.angle_max + lidar_scan.angle_increment / 2,  # Add half increment to include endpoint
+            lidar_scan.angle_increment
+        )
+        if len(lidar_angles) > len(lidar_scan.ranges):
+            lidar_angles = lidar_angles[:len(lidar_scan.ranges)]  # Trim if needed (floating point issues)
+        
+        # Compute angles for depth
+        depth_angles = np.arange(
+            depth_scan.angle_min,
+            depth_scan.angle_max + depth_scan.angle_increment / 2,
+            depth_scan.angle_increment
+        )
+        if len(depth_angles) > len(depth_scan.ranges):
+            depth_angles = depth_angles[:len(depth_scan.ranges)]
+        
+        # Extract ranges as numpy arrays for easier handling
+        lidar_ranges = np.array(lidar_scan.ranges)
+        depth_ranges = np.array(depth_scan.ranges)
+        
+        # Find matching pairs based on angle proximity
         valid_pairs = []
-        total_points = len(lidar_scan.ranges)
         valid_lidar = 0
         valid_depth = 0
         
-        for i in range(total_points):
-            lidar_range = lidar_scan.ranges[i]
-            depth_range = depth_scan.ranges[i]
+        # For each depth angle, find closest LiDAR angle within tolerance
+        for d_idx, d_angle in enumerate(depth_angles):
+            d_range = depth_ranges[d_idx]
             
-            # 统计有效点
-            if self.min_range <= lidar_range <= self.max_range:
-                valid_lidar += 1
-            
-            if (not np.isnan(depth_range) and not np.isinf(depth_range) and 
-                depth_range > 0):
+            # Count valid depth points independently
+            if not np.isnan(d_range) and not np.isinf(d_range) and d_range > 0:
                 valid_depth += 1
             
-            # 双重有效性检查
-            if (self.min_range <= lidar_range <= self.max_range and
-                not np.isnan(depth_range) and not np.isinf(depth_range) and
-                depth_range > 0):
-                valid_pairs.append((depth_range, lidar_range))
+            # Find matching LiDAR angle
+            angle_diffs = np.abs(lidar_angles - d_angle)
+            closest_idx = np.argmin(angle_diffs)
+            if angle_diffs[closest_idx] <= self.angle_tolerance:
+                l_range = lidar_ranges[closest_idx]
+                
+                # Count valid LiDAR points (only for matched angles)
+                if self.min_range <= l_range <= self.max_range:
+                    valid_lidar += 1
+                
+                # If both valid, add pair
+                if (self.min_range <= l_range <= self.max_range and
+                    not np.isnan(d_range) and not np.isinf(d_range) and
+                    d_range > 0):
+                    valid_pairs.append((d_range, l_range))
+        
+        total_possible = min(len(lidar_angles), len(depth_angles))  # Rough estimate for logging
         
         if self.debug_mode:
-            self.get_logger().debug(f'Scan analysis: Total={total_points}, '
-                                  f'Valid LiDAR={valid_lidar}, Valid Depth={valid_depth}, '
+            self.get_logger().debug(f'Scan analysis: LiDAR points={len(lidar_angles)}, '
+                                  f'Depth points={len(depth_angles)}, '
+                                  f'Valid LiDAR (matched)={valid_lidar}, Valid Depth={valid_depth}, '
                                   f'Valid Pairs={len(valid_pairs)}')
         
         if valid_pairs:

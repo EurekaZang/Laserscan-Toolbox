@@ -91,8 +91,8 @@ class DepthAnythingTensorRTNode(Node):
         super().__init__('depth_anything_tensorrt_node')
 
         self.declare_parameter('engine_path', 'models/depth_anything_v2_small.engine')
-        self.declare_parameter('param_scale', 0.016655)
-        self.declare_parameter('param_shift', 0.000132)
+        self.declare_parameter('param_scale', 0.000438)
+        self.declare_parameter('param_shift', 0.021146)
         self.declare_parameter('calib_A', 1) # <-- PUT YOUR OPTIMIZED A HERE
         self.declare_parameter('calib_B', 1.474934) # <-- PUT YOUR OPTIMIZED B HERE
         self.calib_A = self.get_parameter('calib_A').get_parameter_value().double_value
