@@ -91,10 +91,10 @@ class DepthAnythingTensorRTNode(Node):
         super().__init__('depth_anything_tensorrt_node')
 
         self.declare_parameter('engine_path', 'models/depth_anything_v2_small.engine')
-        self.declare_parameter('param_scale', 0.000438)
-        self.declare_parameter('param_shift', 0.021146)
-        self.declare_parameter('calib_A', 1) # <-- PUT YOUR OPTIMIZED A HERE
-        self.declare_parameter('calib_B', 1.474934) # <-- PUT YOUR OPTIMIZED B HERE
+        self.declare_parameter('param_scale', 1.0)
+        self.declare_parameter('param_shift', 0.0)
+        self.declare_parameter('calib_A', 1.0) # <-- PUT YOUR OPTIMIZED A HERE
+        self.declare_parameter('calib_B', 0.0) # <-- PUT YOUR OPTIMIZED B HERE
         self.calib_A = self.get_parameter('calib_A').get_parameter_value().double_value
         self.calib_B = self.get_parameter('calib_B').get_parameter_value().double_value
         self.declare_parameter('input_image_topic', '/camera/color/image_raw')
@@ -111,11 +111,8 @@ class DepthAnythingTensorRTNode(Node):
         self.trt_model = TrtInference(engine_path)
         self.bridge = CvBridge()
 
-        self.depth_pub = self.create_publisher(Image, '/fake_camera/depth/image', 30)
-        self.depth_info_pub = self.create_publisher(CameraInfo, '/fake_camera/depth/camera_info', 30)
-        # ---------------------------------
-        self.raw_depth_pub = self.create_publisher(Image, '/fake_camera/depth/raw_unscaled', 30)
-        # ---------------------------------
+        self.depth_pub = self.create_publisher(Image, '/depth_anything/image', 30)
+        self.depth_info_pub = self.create_publisher(CameraInfo, '/depth_anything/camera_info', 30)
 
         self.lock = threading.Lock()
 
@@ -143,16 +140,11 @@ class DepthAnythingTensorRTNode(Node):
             depth_map = raw_output.reshape(self.trt_model.output_shape[-2:])
             depth_resized = cv2.resize(depth_map, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
 
-            # ---------------------------------
-            raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_resized.astype(np.float32), encoding='32FC1')
-            raw_depth_msg.header = image_msg.header
-            self.raw_depth_pub.publish(raw_depth_msg)
-            # ---------------------------------
-
-            # metric_depth = ((depth_resized * self.param_scale + self.param_shift) * 19).astype(np.float32)
-            metric_depth = (depth_resized * self.calib_A + self.calib_B).astype(np.float32)
+            metric_depth = ((depth_resized * self.param_scale + self.param_shift) / 2.3).astype(np.float32)
+            # metric_depth = 1.0 / np.clip(metric_depth, 1e-6, None)  # Avoid division by zero
             t3 = self.get_clock().now()
 
+            # depth_msg = self.bridge.cv2_to_imgmsg(depth_resized, encoding='32FC1')
             depth_msg = self.bridge.cv2_to_imgmsg(metric_depth, encoding='32FC1')
             depth_msg.header = image_msg.header
             self.depth_pub.publish(depth_msg)

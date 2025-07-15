@@ -20,7 +20,7 @@ class DepthLidarCalibrator(Node):
         self.declare_parameter('sample_size', 100)
         self.declare_parameter('min_range', 0.1)
         self.declare_parameter('max_range', 15.0)
-        self.declare_parameter('time_sync_tolerance', 0.1)  # 时间同步容差
+        self.declare_parameter('time_sync_tolerance', 0.5)  # 时间同步容差
         self.declare_parameter('debug_mode', True)
         # NEW: Add parameter for angle matching tolerance (e.g., in radians)
         self.declare_parameter('angle_tolerance', 0.005)  # ~0.3 degrees, adjust as needed
@@ -221,7 +221,6 @@ class DepthLidarCalibrator(Node):
                                  f'Scan samples={len(self.scan_pairs)}')
     
     def calibrate_parameters(self):
-        """执行参数校准"""
         with self.lock:
             scan_samples = len(self.scan_pairs)
             
@@ -230,7 +229,6 @@ class DepthLidarCalibrator(Node):
                                      f'Current: {scan_samples}, Need: 5+')
                 return
             
-            # 合并所有数据对
             all_pairs = []
             for pairs in self.scan_pairs:
                 all_pairs.extend(pairs)
@@ -245,9 +243,14 @@ class DepthLidarCalibrator(Node):
         
         self.get_logger().info(f'Starting calibration with {len(all_pairs)} data points from {scan_samples} scans...')
         
-        # 数据统计
         self.get_logger().info(f'Depth range: {depth_values.min():.3f} - {depth_values.max():.3f}')
         self.get_logger().info(f'LiDAR range: {lidar_values.min():.3f} - {lidar_values.max():.3f}')
+        
+        correlation = np.corrcoef(depth_values, lidar_values)[0,1]
+        self.get_logger().info(f'Depth-LiDAR correlation: {correlation:.4f}')
+        mean_depth = np.mean(depth_values)
+        mean_lidar = np.mean(lidar_values)
+        self.get_logger().info(f'Mean depth: {mean_depth:.3f}, Mean LiDAR: {mean_lidar:.3f}')
         
         try:
             if self.calibration_mode == 'linear':
@@ -280,22 +283,26 @@ class DepthLidarCalibrator(Node):
             self.get_logger().error(f'Calibration failed: {e}')
     
     def optimize_linear_params(self, depth_values, lidar_values):
-        """优化线性参数"""
-        def objective(params):
-            scale, shift, multiplier = params
-            predicted = (depth_values * scale + shift) * multiplier
-            return np.sum((predicted - lidar_values) ** 2)
-        
-        initial_guess = self.current_params.copy()
-        bounds = [(0.001, 10.0), (-10.0, 10.0), (0.1, 100.0)]
-        
-        result = minimize(objective, initial_guess, bounds=bounds, method='L-BFGS-B')
-        
-        if result.success:
-            return result.x.tolist()
-        else:
-            self.get_logger().warn(f'Optimization failed: {result.message}')
+        """优化线性参数 - Updated to use analytical linear regression for stability"""
+        # Since the model is effectively linear (lidar = a * depth + b), use polyfit for optimal fit
+        # Then map to [scale, shift, multiplier] by setting multiplier=1.0, scale=a, shift=b
+        if len(depth_values) < 2:
+            self.get_logger().warn('Too few points for linear fit')
             return self.current_params
+        
+        # Perform linear regression: lidar = scale * depth + shift (implicit multiplier=1)
+        scale, shift = np.polyfit(depth_values, lidar_values, 1)  # Returns [slope, intercept]
+        
+        optimized_params = [float(scale), float(shift), 1.0]  # Fix multiplier to 1.0
+        
+        # Check if fit is valid
+        if np.isnan(scale) or np.isnan(shift):
+            self.get_logger().warn('Linear fit resulted in NaN values')
+            return self.current_params
+        
+        self.get_logger().info(f'Linear regression results: scale={scale:.4f}, shift={shift:.4f}, multiplier=1.0')
+        
+        return optimized_params
     
     def optimize_nonlinear_params(self, depth_values, lidar_values):
         """优化非线性参数"""
