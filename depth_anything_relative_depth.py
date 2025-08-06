@@ -90,19 +90,21 @@ class DepthAnythingTensorRTNode(Node):
     def __init__(self):
         super().__init__('depth_anything_tejnsorrt_node')
 
-        self.declare_parameter('engine_path', 'models/depth_anything_v2_small.engine')
-        self.declare_parameter('param_scale', 1.0)
-        self.declare_parameter('param_shift', 0.0)
+        self.declare_parameter('engine_path', 'models/depth-anything-v2-small-relative_depth.engine')
+        self.declare_parameter('param_scale',  0.013415)
+        self.declare_parameter('param_shift', 0.329797)
+        self.declare_parameter('align', 0.0)
         self.declare_parameter('calib_A', 1.0) # <-- PUT YOUR OPTIMIZED A HERE
         self.declare_parameter('calib_B', 0.0) # <-- PUT YOUR OPTIMIZED B HERE
         self.calib_A = self.get_parameter('calib_A').get_parameter_value().double_value
         self.calib_B = self.get_parameter('calib_B').get_parameter_value().double_value
-        self.declare_parameter('input_image_topic', '/camera/color/image_raw')
+        self.declare_parameter('input_image_topic', '/camera3/image_raw')
         self.declare_parameter('input_info_topic', '/camera/color/camera_info')
         
         engine_path = self.get_parameter('engine_path').get_parameter_value().string_value
         self.param_scale = self.get_parameter('param_scale').get_parameter_value().double_value
         self.param_shift = self.get_parameter('param_shift').get_parameter_value().double_value
+        self.align = self.get_parameter('align').get_parameter_value().double_value
         input_image_topic = self.get_parameter('input_image_topic').get_parameter_value().string_value
         input_info_topic = self.get_parameter('input_info_topic').get_parameter_value().string_value
 
@@ -119,12 +121,16 @@ class DepthAnythingTensorRTNode(Node):
         self.image_sub = message_filters.Subscriber(self, Image, input_image_topic)
         self.info_sub = message_filters.Subscriber(self, CameraInfo, input_info_topic)
 
-        self.ts = message_filters.TimeSynchronizer([self.image_sub, self.info_sub], 10)
+        # self.ts = message_filters.TimeSynchronizer([self.image_sub, self.info_sub], 10)
+        # self.ts.registerCallback(self.image_callback)
+        self.ts = message_filters.ApproximateTimeSynchronizer(
+            [self.image_sub, self.info_sub], queue_size=10, slop=0.2)
         self.ts.registerCallback(self.image_callback)
-
         self.get_logger().info('Depth Anything TensorRT node has started.')
 
+
     def image_callback(self, image_msg, info_msg):
+        # self.get_logger().info('收到图片帧')
         if not self.lock.acquire(blocking=False):
             self.get_logger().warn('Dropping a frame, inference is not fast enough for the input rate.')
             return
@@ -136,20 +142,27 @@ class DepthAnythingTensorRTNode(Node):
             t1 = self.get_clock().now()
             raw_output = self.trt_model.infer(cv_image)
             t2 = self.get_clock().now()
-
             depth_map = raw_output.reshape(self.trt_model.output_shape[-2:])
             depth_resized = cv2.resize(depth_map, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
 
-            metric_depth = ((depth_resized * self.param_scale + self.param_shift) / 2.3).astype(np.float32)
-            # metric_depth = 1.0 / np.clip(metric_depth, 1e-6, None)  # Avoid division by zero
+            depth_min = np.min(depth_resized)
+            depth_max = np.max(depth_resized)
+            if depth_max > depth_min:
+                relative_depth = (depth_resized - depth_min) / (depth_max - depth_min)
+            else:
+                relative_depth = np.zeros_like(depth_resized)
 
+            relative_depth = (relative_depth * 255.0).astype(np.uint8)
+            metric_depth = ((relative_depth * self.param_scale + self.param_shift)).astype(np.float32)
+            metric_depth = np.maximum(metric_depth, 1e-6)
+            metric_depth = 1.0 / metric_depth
 
-
+            h, w = metric_depth.shape
+            center_value = metric_depth[h // 2, w // 2]
+            self.get_logger().info(f"metric_depth center pixel value: {center_value:.6f}")
 
             t3 = self.get_clock().now()
-
-            # depth_msg = self.bridge.cv2_to_imgmsg(depth_resized, encoding='32FC1')
-            depth_msg = self.bridge.cv2_to_imgmsg(metric_depth, encoding='32FC1')
+            depth_msg = self.bridge.cv2_to_imgmsg(depth_resized, encoding='32FC1')
             depth_msg.header = image_msg.header
             self.depth_pub.publish(depth_msg)
 
